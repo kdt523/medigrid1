@@ -1,16 +1,53 @@
-# React + Vite
+# 🏥 MediGrid: Hospital Resource Management System
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+MediGrid is a high-performance, real-time dashboard for managing city-wide hospital resources. It provides critical insights into bed availability (General & ICU), ventilator status, and emergency alerts across multiple healthcare facilities.
 
-Currently, two official plugins are available:
+## 🚀 Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Real-time Monitoring**: Track bed and ventilator availability across zones.
+- **Role-Based Access Control (RBAC)**: Custom views for different stakeholders.
+- **Critical Alerts**: Instant notification for resource shortages.
+- **Analytics Dashboard**: Visual representation of city-wide utilization trends.
+- **Search & Filter**: Quickly find available resources by zone or hospital type.
 
-## React Compiler
+## 👥 Role Permissions
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The system implements strict access control to ensure data security and relevance:
 
-## Expanding the ESLint configuration
+| Role | Accessible Features |
+| :--- | :--- |
+| **City Authority** | Dashboard, Hospitals, Alerts, Analytics |
+| **Hospital Admin** | Dashboard, My Hospital Management |
+| **User** | Hospital Directory, Resource Search |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## 🛠️ Tech Stack
+
+- **Frontend**: React.js with Vite
+- **Styling**: Tailwind CSS
+- **Icons**: Lucide React
+- **Charts**: Recharts
+- **Design**: Premium Glassmorphism UI
+
+## 📦 Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/kdt523/MediGrid.git
+
+# Navigate to directory
+cd MediGrid
+
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+```
+
+## 🎨 UI Preview
+
+The application features a modern dark-mode aesthetic with vibrant cyan accents and smooth glassmorphism effects.
+
+---
+
+*Part of the Advanced Agentic Coding project.*
