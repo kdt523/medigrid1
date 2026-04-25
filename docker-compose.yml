@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: medigrid_db
+      POSTGRES_USER: medigrid
+      POSTGRES_PASSWORD: medigrid123
+    ports:
+      - "5432:5432"
+    volumes:
+      - medigrid_pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://medigrid:medigrid123@db:5432/medigrid_db
+      SECRET_KEY: change-me
+      JWT_SECRET_KEY: change-me-jwt
+      FLASK_ENV: development
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+
+volumes:
+  medigrid_pgdata:
