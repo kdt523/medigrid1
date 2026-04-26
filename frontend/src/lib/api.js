@@ -20,9 +20,10 @@ const headers = (extra = {}) => ({
 
 export const api = {
   // Auth
-  login:   (email, password)  => fetch(`${BASE_URL}/auth/login`,  { method: 'POST', headers: headers(), body: JSON.stringify({ email, password }) }).then(r => r.json()),
-  logout:  ()                  => fetch(`${BASE_URL}/auth/logout`, { method: 'POST', headers: headers() }).then(r => r.json()),
-  me:      ()                  => fetch(`${BASE_URL}/auth/me`,     { headers: headers() }).then(r => r.json()),
+  login:    (email, password) => fetch(`${BASE_URL}/auth/login`,    { method: 'POST', headers: headers(), body: JSON.stringify({ email, password }) }).then(r => r.json()),
+  register: (name, email, password) => fetch(`${BASE_URL}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email, password }) }).then(r => r.json()),
+  logout:   ()                => fetch(`${BASE_URL}/auth/logout`,   { method: 'POST', headers: headers() }).then(r => r.json()),
+  me:       ()                => fetch(`${BASE_URL}/auth/me`,       { headers: headers() }).then(r => r.json()),
 
   // Hospitals
   getHospitals:    (params = {}) => {

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, Search as SearchIcon, Bell, BarChart3, Settings,
   AlertTriangle, BedDouble, Activity, Users, LogOut, Clock,
   Filter, Plus, MoreVertical, Edit2, CheckCircle2, Info, X, MapPin,
   Phone, ExternalLink, ChevronRight, ArrowUpRight, ArrowDownRight,
-  TrendingUp, AlertCircle, Shield, User, Menu, RefreshCcw, Lock, Mail, Eye, EyeOff
+  TrendingUp, AlertCircle, Shield, User, Menu, RefreshCcw, Lock, Mail, Eye, EyeOff,
+  UserPlus
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -185,8 +187,12 @@ const Login = ({ onLogin }) => {
 // --- MAIN APP COMPONENT ---
 
 export default function App() {
+  const navigate = useNavigate();
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('medigrid_token'));
-  const [currentUser, setCurrentUser] = useState(null);
+  // Pre-populate from localStorage so we don't flash a loading spinner on every render
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('medigrid_user') || 'null'); } catch { return null; }
+  });
   const [activePage, setActivePage] = useState('dashboard');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [toast, setToast] = useState(null);
@@ -207,6 +213,36 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [hospitalFilters, setHospitalFilters] = useState({ type: 'All', zone: 'All', status: 'All' });
   const [modals, setModals] = useState({ hospitalDetails: null, addHospital: false, addUser: false, editThresholds: null });
+
+  // Extracted Page States
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchFilters, setSearchFilters] = useState({ resource: 'general_bed', zone: 'All Zones' });
+
+  const [allAlerts, setAllAlerts] = useState([]);
+  const [alertFilter, setAlertFilter] = useState('Active');
+
+  const [analyticsSummary, setAnalyticsSummary] = useState(null);
+  const [analyticsTrends, setAnalyticsTrends] = useState(null);
+  const [range, setRange] = useState('7d');
+
+  const [hospitalForm, setHospitalForm] = useState({
+    general_bed: 0,
+    icu_bed: 0,
+    ventilator: 0
+  });
+
+  const [adminTab, setAdminTab] = useState('Users');
+
+  // Hospital form state
+  const [addHospitalForm, setAddHospitalForm] = useState({ name: '', type: 'Public', zone: 'Central', address: '', phone: '', general_bed: 0, icu_bed: 0, ventilator: 0 });
+  const [editHospital, setEditHospital] = useState(null);
+  const [editHospitalForm, setEditHospitalForm] = useState({ name: '', type: 'Public', zone: 'Central', address: '', phone: '', general_bed: 0, icu_bed: 0, ventilator: 0 });
+  const [savingHospital, setSavingHospital] = useState(false);
+
+  // Add User form state
+  const [addUserForm, setAddUserForm] = useState({ name: '', email: '', password: '', role: 'hospital_admin', hospital_id: '' });
+  const [savingUser, setSavingUser] = useState(false);
 
   // Effects
   useEffect(() => {
@@ -237,6 +273,34 @@ export default function App() {
       }
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      api.getAlerts({ status: alertFilter.toLowerCase() }).then(d => setAllAlerts(d.data.alerts)).catch(() => {});
+    }
+  }, [alertFilter, isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      api.getAnalyticsSummary().then(d => setAnalyticsSummary(d.data)).catch(() => {});
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      api.getAnalyticsTrends(range).then(d => setAnalyticsTrends(d.data)).catch(() => {});
+    }
+  }, [range, isLoggedIn]);
+
+  useEffect(() => {
+    if (dashStats?.resources) {
+      setHospitalForm({
+        general_bed: dashStats.resources.general_bed?.available || 0,
+        icu_bed: dashStats.resources.icu_bed?.available || 0,
+        ventilator: dashStats.resources.ventilator?.available || 0
+      });
+    }
+  }, [dashStats]);
 
   // Data Fetching
   const fetchCurrentUser = async () => {
@@ -293,6 +357,7 @@ export default function App() {
     if (result.status === 'success') {
       setToken(result.data.access_token);
       setCurrentUser(result.data.user);
+      localStorage.setItem('medigrid_user', JSON.stringify(result.data.user));
       setIsLoggedIn(true);
       showToast(`Welcome back, ${result.data.user.name}`);
       return result;
@@ -303,11 +368,46 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await api.logout();
+    await api.logout().catch(() => {});
     clearToken();
+    localStorage.removeItem('medigrid_user');
     setIsLoggedIn(false);
     setCurrentUser(null);
-    showToast('Logged out successfully', 'info');
+    navigate('/admin/login');
+  };
+
+  const handleAddUser = async () => {
+    if (!addUserForm.name || !addUserForm.email || !addUserForm.password) {
+      showToast('Name, email, and password are required', 'error');
+      return;
+    }
+    if (addUserForm.role === 'hospital_admin' && !addUserForm.hospital_id) {
+      showToast('Please select a hospital for the Hospital Admin', 'error');
+      return;
+    }
+    setSavingUser(true);
+    try {
+      const payload = {
+        name: addUserForm.name,
+        email: addUserForm.email,
+        password: addUserForm.password,
+        role: addUserForm.role,
+        hospital_id: addUserForm.role === 'hospital_admin' ? addUserForm.hospital_id : null,
+      };
+      const res = await api.createUser(payload);
+      if (res.status === 'success') {
+        showToast(`User "${addUserForm.name}" created successfully`);
+        setModals({ ...modals, addUser: false });
+        setAddUserForm({ name: '', email: '', password: '', role: 'hospital_admin', hospital_id: '' });
+        api.getUsers().then(d => setUsers(d.data.users)).catch(() => {});
+      } else {
+        showToast(res.message || 'Failed to create user', 'error');
+      }
+    } catch {
+      showToast('Connection error', 'error');
+    } finally {
+      setSavingUser(false);
+    }
   };
 
   const handleResolveAlert = async (id) => {
@@ -315,6 +415,78 @@ export default function App() {
     if (res.status === 'success') {
       setAlerts(prev => prev.filter(a => a.alert_id !== id));
       showToast('Alert marked as resolved');
+    }
+  };
+
+  const handleAddHospital = async () => {
+    setSavingHospital(true);
+    try {
+      const payload = {
+        name: addHospitalForm.name,
+        type: addHospitalForm.type,
+        zone: addHospitalForm.zone,
+        address: addHospitalForm.address,
+        contact: addHospitalForm.phone,
+        general_bed_total: Number(addHospitalForm.general_bed),
+        icu_bed_total: Number(addHospitalForm.icu_bed),
+        ventilator_total: Number(addHospitalForm.ventilator),
+      };
+      const res = await api.createHospital(payload);
+      if (res.status === 'success') {
+        showToast('Hospital added successfully');
+        setModals({ ...modals, addHospital: false });
+        setAddHospitalForm({ name: '', type: 'Public', zone: 'Central', address: '', phone: '', general_bed: 0, icu_bed: 0, ventilator: 0 });
+        api.getHospitals().then(d => setHospitals(d.data.hospitals));
+      } else {
+        showToast(res.message || 'Failed to add hospital', 'error');
+      }
+    } catch (e) {
+      showToast('Failed to add hospital', 'error');
+    } finally {
+      setSavingHospital(false);
+    }
+  };
+
+  const openEditHospital = (h) => {
+    setEditHospital(h);
+    setEditHospitalForm({
+      name: h.name,
+      type: h.type,
+      zone: h.zone,
+      address: h.address || '',
+      phone: h.phone || '',
+      general_bed: h.resources?.general_bed?.total || 0,
+      icu_bed: h.resources?.icu_bed?.total || 0,
+      ventilator: h.resources?.ventilator?.total || 0,
+    });
+  };
+
+  const handleEditHospital = async () => {
+    if (!editHospital) return;
+    setSavingHospital(true);
+    try {
+      const payload = {
+        name: editHospitalForm.name,
+        type: editHospitalForm.type,
+        zone: editHospitalForm.zone,
+        address: editHospitalForm.address,
+        contact: editHospitalForm.phone,
+        general_bed_total: Number(editHospitalForm.general_bed),
+        icu_bed_total: Number(editHospitalForm.icu_bed),
+        ventilator_total: Number(editHospitalForm.ventilator),
+      };
+      const res = await api.updateHospital(editHospital.hospital_id, payload);
+      if (res.status === 'success') {
+        showToast('Hospital updated successfully');
+        setEditHospital(null);
+        api.getHospitals().then(d => setHospitals(d.data.hospitals));
+      } else {
+        showToast(res.message || 'Failed to update hospital', 'error');
+      }
+    } catch (e) {
+      showToast('Failed to update hospital', 'error');
+    } finally {
+      setSavingHospital(false);
     }
   };
 
@@ -583,7 +755,7 @@ export default function App() {
                   <span className="text-slate-500">Updated: {new Date(h.last_updated).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   <div className="flex gap-2">
                     <button onClick={() => setModals({ ...modals, hospitalDetails: h })} className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-cyan-500/50 hover:bg-cyan-500/5 text-slate-300 hover:text-cyan-400 transition-all">Details</button>
-                    {currentUser.role === 'system_admin' && <button className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white transition-colors">Edit</button>}
+                    {currentUser.role === 'system_admin' && <button onClick={() => openEditHospital(h)} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white transition-colors flex items-center gap-1"><Edit2 size={12} /> Edit</button>}
                   </div>
                 </div>
               </div>
@@ -595,10 +767,6 @@ export default function App() {
   };
 
   const renderSearch = () => {
-    const [searchResults, setSearchResults] = useState([]);
-    const [searching, setSearching] = useState(false);
-    const [searchFilters, setSearchFilters] = useState({ resource: 'general_bed', zone: 'All Zones' });
-
     const handleSearchAction = async () => {
       setSearching(true);
       try {
@@ -711,13 +879,6 @@ export default function App() {
   };
 
   const renderAlerts = () => {
-    const [allAlerts, setAllAlerts] = useState([]);
-    const [alertFilter, setAlertFilter] = useState('Active');
-
-    useEffect(() => {
-      api.getAlerts({ status: alertFilter.toLowerCase() }).then(d => setAllAlerts(d.data.alerts));
-    }, [alertFilter]);
-
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -774,18 +935,6 @@ export default function App() {
   };
 
   const renderAnalytics = () => {
-    const [analyticsSummary, setAnalyticsSummary] = useState(null);
-    const [analyticsTrends, setAnalyticsTrends] = useState(null);
-    const [range, setRange] = useState('7d');
-
-    useEffect(() => {
-      api.getAnalyticsSummary().then(d => setAnalyticsSummary(d.data));
-    }, []);
-
-    useEffect(() => {
-      api.getAnalyticsTrends(range).then(d => setAnalyticsTrends(d.data));
-    }, [range]);
-
     const handleExport = async () => {
       const res = await api.exportCSV(range);
       const blob = await res.blob();
@@ -866,24 +1015,9 @@ export default function App() {
 
   const renderMyHospital = () => {
     const h = dashStats; // For hospital admin, dashStats is their hospital object
-    const [form, setForm] = useState({
-      general_bed: 0,
-      icu_bed: 0,
-      ventilator: 0
-    });
-
-    useEffect(() => {
-      if (h?.resources) {
-        setForm({
-          general_bed: h.resources.general_bed?.available || 0,
-          icu_bed: h.resources.icu_bed?.available || 0,
-          ventilator: h.resources.ventilator?.available || 0
-        });
-      }
-    }, [h]);
 
     const handleUpdate = async () => {
-      const res = await api.updateResources(currentUser.hospital_id, form);
+      const res = await api.updateResources(currentUser.hospital_id, hospitalForm);
       if (res.status === 'success') {
         showToast('Resources updated successfully');
         loadInitialData(); // Reload stats
@@ -912,8 +1046,8 @@ export default function App() {
                 </div>
                 <input
                   type="number"
-                  value={form[field.key]}
-                  onChange={(e) => setForm({ ...form, [field.key]: parseInt(e.target.value) || 0 })}
+                  value={hospitalForm[field.key]}
+                  onChange={(e) => setHospitalForm({ ...hospitalForm, [field.key]: parseInt(e.target.value) || 0 })}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-2xl font-mono text-white focus:outline-none focus:border-cyan-500 focus:ring-1 ring-cyan-500/50 transition-all"
                 />
                 <div className="text-[10px] text-slate-500 text-center font-bold">MAX CAPACITY: {field.max}</div>
@@ -932,8 +1066,6 @@ export default function App() {
   };
 
   const renderAdmin = () => {
-    const [adminTab, setAdminTab] = useState('Users');
-    
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex gap-4 border-b border-slate-800 pb-px">
@@ -950,6 +1082,15 @@ export default function App() {
 
         {adminTab === 'Users' && (
           <div className="glass-card rounded-2xl overflow-hidden border border-slate-800">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">All Users</p>
+              <button
+                onClick={() => setModals({ ...modals, addUser: true })}
+                className="flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-bold rounded-xl transition-colors"
+              >
+                <UserPlus size={14} /> Add User
+              </button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-900/50 text-slate-500 font-mono text-[11px] uppercase tracking-wider">
@@ -1009,7 +1150,14 @@ export default function App() {
     );
   };
 
-  if (!isLoggedIn) return <Login onLogin={handleLogin} />;
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0A0E1A] text-cyan-500">
+        <RefreshCcw className="animate-spin" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex bg-[#0A0E1A] text-slate-200 medi-grid-bg">
@@ -1097,6 +1245,193 @@ export default function App() {
       </main>
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+
+      {/* Hospital Details Modal */}
+      <Modal isOpen={!!modals.hospitalDetails} onClose={() => setModals({ ...modals, hospitalDetails: null })} title="Hospital Details">
+        {modals.hospitalDetails && (() => {
+          const h = modals.hospitalDetails;
+          return (
+            <div className="space-y-6">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-white">{h.name}</h3>
+                  <div className="flex gap-2 mt-2">
+                    <Badge color={h.type?.toLowerCase() === 'public' ? 'blue' : 'purple'}>{h.type}</Badge>
+                    <Badge color="gray">{h.zone}</Badge>
+                    <Badge color={h.status === 'active' ? 'green' : 'red'}>{h.status}</Badge>
+                  </div>
+                </div>
+              </div>
+              {h.address && <div className="flex items-start gap-2 text-sm text-slate-400"><MapPin size={16} className="text-cyan-400 mt-0.5 shrink-0" />{h.address}</div>}
+              {h.phone && <div className="flex items-center gap-2 text-sm text-slate-400"><Phone size={16} className="text-cyan-400 shrink-0" />{h.phone}</div>}
+              <div className="border-t border-slate-800 pt-4">
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Resource Availability</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  {['general_bed', 'icu_bed', 'ventilator'].map(type => {
+                    const res = h.resources?.[type] || { total: 0, available: 0 };
+                    const perc = Math.round((res.available / (res.total || 1)) * 100);
+                    return (
+                      <div key={type} className="glass-card p-4 rounded-xl border border-slate-800 text-center space-y-2">
+                        <div className="text-2xl font-bold font-mono text-white">{res.available}<span className="text-slate-600 text-base">/{res.total}</span></div>
+                        <div className="text-[10px] uppercase tracking-widest font-bold text-slate-500">{type.replace(/_/g, ' ')}</div>
+                        <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                          <div className={`h-full transition-all ${perc < 20 ? 'bg-red-500' : perc < 50 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${perc}%` }} />
+                        </div>
+                        <div className={`text-[10px] font-bold ${perc < 20 ? 'text-red-400' : perc < 50 ? 'text-amber-400' : 'text-emerald-400'}`}>{perc}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-800">
+                Last Updated: {new Date(h.last_updated).toLocaleString()}
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Add Hospital Modal */}
+      <Modal isOpen={modals.addHospital} onClose={() => setModals({ ...modals, addHospital: false })} title="Add New Hospital">
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Hospital Name *</label>
+              <input value={addHospitalForm.name} onChange={e => setAddHospitalForm({ ...addHospitalForm, name: e.target.value })} placeholder="e.g. City General Hospital" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Type</label>
+              <select value={addHospitalForm.type} onChange={e => setAddHospitalForm({ ...addHospitalForm, type: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500">
+                <option>Public</option><option>Private</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Zone</label>
+              <select value={addHospitalForm.zone} onChange={e => setAddHospitalForm({ ...addHospitalForm, zone: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500">
+                {['North','South','East','West','Central','Suburban'].map(z => <option key={z}>{z}</option>)}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Address</label>
+              <input value={addHospitalForm.address} onChange={e => setAddHospitalForm({ ...addHospitalForm, address: e.target.value })} placeholder="Full address" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Phone</label>
+              <input value={addHospitalForm.phone} onChange={e => setAddHospitalForm({ ...addHospitalForm, phone: e.target.value })} placeholder="+91 XXXXX XXXXX" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+            </div>
+          </div>
+          <div className="border-t border-slate-800 pt-4">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Initial Capacity</p>
+            <div className="grid grid-cols-3 gap-3">
+              {[{ key: 'general_bed', label: 'General Beds' }, { key: 'icu_bed', label: 'ICU Beds' }, { key: 'ventilator', label: 'Ventilators' }].map(f => (
+                <div key={f.key}>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{f.label}</label>
+                  <input type="number" min="0" value={addHospitalForm[f.key]} onChange={e => setAddHospitalForm({ ...addHospitalForm, [f.key]: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-white text-lg font-mono focus:outline-none focus:border-cyan-500 transition-colors" />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => setModals({ ...modals, addHospital: false })} className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 hover:bg-slate-800 transition-colors text-sm font-bold">Cancel</button>
+            <button onClick={handleAddHospital} disabled={savingHospital || !addHospitalForm.name} className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
+              {savingHospital ? <RefreshCcw size={16} className="animate-spin" /> : <Plus size={16} />} Add Hospital
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Hospital Modal */}
+      <Modal isOpen={!!editHospital} onClose={() => setEditHospital(null)} title="Edit Hospital">
+        {editHospital && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Hospital Name *</label>
+                <input value={editHospitalForm.name} onChange={e => setEditHospitalForm({ ...editHospitalForm, name: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Type</label>
+                <select value={editHospitalForm.type} onChange={e => setEditHospitalForm({ ...editHospitalForm, type: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500">
+                  <option>Public</option><option>Private</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Zone</label>
+                <select value={editHospitalForm.zone} onChange={e => setEditHospitalForm({ ...editHospitalForm, zone: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500">
+                  {['North','South','East','West','Central','Suburban'].map(z => <option key={z}>{z}</option>)}
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Address</label>
+                <input value={editHospitalForm.address} onChange={e => setEditHospitalForm({ ...editHospitalForm, address: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Phone</label>
+                <input value={editHospitalForm.phone} onChange={e => setEditHospitalForm({ ...editHospitalForm, phone: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+              </div>
+            </div>
+            <div className="border-t border-slate-800 pt-4">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Total Capacity</p>
+              <div className="grid grid-cols-3 gap-3">
+                {[{ key: 'general_bed', label: 'General Beds' }, { key: 'icu_bed', label: 'ICU Beds' }, { key: 'ventilator', label: 'Ventilators' }].map(f => (
+                  <div key={f.key}>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{f.label}</label>
+                    <input type="number" min="0" value={editHospitalForm[f.key]} onChange={e => setEditHospitalForm({ ...editHospitalForm, [f.key]: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-white text-lg font-mono focus:outline-none focus:border-cyan-500 transition-colors" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setEditHospital(null)} className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 hover:bg-slate-800 transition-colors text-sm font-bold">Cancel</button>
+              <button onClick={handleEditHospital} disabled={savingHospital || !editHospitalForm.name} className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
+                {savingHospital ? <RefreshCcw size={16} className="animate-spin" /> : <Edit2 size={16} />} Save Changes
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+      <Modal isOpen={modals.addUser} onClose={() => { setModals({ ...modals, addUser: false }); setAddUserForm({ name: '', email: '', password: '', role: 'hospital_admin', hospital_id: '' }); }} title="Add New User">
+        <div className="space-y-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Full Name *</label>
+            <input value={addUserForm.name} onChange={e => setAddUserForm({ ...addUserForm, name: e.target.value })} placeholder="e.g. Dr. Priya Rao" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Email Address *</label>
+            <input type="email" value={addUserForm.email} onChange={e => setAddUserForm({ ...addUserForm, email: e.target.value })} placeholder="user@hospital.com" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Temporary Password *</label>
+            <input type="password" value={addUserForm.password} onChange={e => setAddUserForm({ ...addUserForm, password: e.target.value })} placeholder="Min. 6 characters" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500 transition-colors" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Role *</label>
+            <select value={addUserForm.role} onChange={e => setAddUserForm({ ...addUserForm, role: e.target.value, hospital_id: '' })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500">
+              <option value="hospital_admin">Hospital Admin</option>
+              <option value="operator">Operator</option>
+              <option value="authority">Authority</option>
+              <option value="system_admin">System Admin</option>
+            </select>
+          </div>
+          {addUserForm.role === 'hospital_admin' && (
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Assign Hospital *</label>
+              <select value={addUserForm.hospital_id} onChange={e => setAddUserForm({ ...addUserForm, hospital_id: e.target.value })} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500">
+                <option value="">-- Select a Hospital --</option>
+                {hospitals.filter(h => h.status === 'active').map(h => (
+                  <option key={h.hospital_id} value={h.hospital_id}>{h.name} ({h.zone})</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => { setModals({ ...modals, addUser: false }); setAddUserForm({ name: '', email: '', password: '', role: 'hospital_admin', hospital_id: '' }); }} className="flex-1 py-3 rounded-xl border border-slate-700 text-slate-400 hover:bg-slate-800 transition-colors text-sm font-bold">Cancel</button>
+            <button onClick={handleAddUser} disabled={savingUser || !addUserForm.name || !addUserForm.email} className="flex-1 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2">
+              {savingUser ? <RefreshCcw size={16} className="animate-spin" /> : <UserPlus size={14} />} Create User
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

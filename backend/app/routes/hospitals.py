@@ -107,10 +107,35 @@ def update_hospital(hospital_id):
     hospital.lng = data.get('lng', hospital.lng)
     hospital.status = data.get('status', hospital.status)
 
+    # Update resource totals if provided
+    for r_type in ['general_bed', 'icu_bed', 'ventilator']:
+        key = f'{r_type}_total'
+        if key in data:
+            new_total = int(data[key])
+            resource = Resource.query.filter_by(
+                hospital_id=hospital.hospital_id,
+                resource_type=r_type
+            ).first()
+            if resource:
+                resource.total_count = new_total
+                # Cap available_count to new total to avoid constraint violation
+                if resource.available_count > new_total:
+                    resource.available_count = new_total
+            else:
+                # Create if missing
+                resource = Resource(
+                    hospital_id=hospital.hospital_id,
+                    resource_type=r_type,
+                    total_count=new_total,
+                    available_count=new_total
+                )
+                db.session.add(resource)
+
     db.session.commit()
     log_action(user_id, "UPDATE", "hospital", hospital.hospital_id, old_value=old_val, new_value=hospital_schema.dump(hospital))
     
     return success_response(hospital_schema.dump(hospital), "Hospital updated")
+
 
 @hospitals_bp.route('/<hospital_id>', methods=['DELETE'])
 @jwt_required()

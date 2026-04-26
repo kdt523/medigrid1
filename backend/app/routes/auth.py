@@ -8,6 +8,44 @@ from datetime import datetime
 
 auth_bp = Blueprint('auth', __name__)
 
+@auth_bp.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    email = data.get('email', '').strip().lower()
+    password = data.get('password', '')
+
+    if not name or not email or not password:
+        return error_response("Name, email, and password are required", 400)
+
+    if len(password) < 6:
+        return error_response("Password must be at least 6 characters", 400)
+
+    if User.query.filter_by(email=email).first():
+        return error_response("An account with this email already exists", 409)
+
+    try:
+        user = User(name=name, email=email, role='citizen')
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        access_token = create_access_token(identity=str(user.user_id))
+        log_action(user.user_id, "REGISTER", "user", user.user_id)
+
+        return success_response({
+            "access_token": access_token,
+            "user": {
+                "user_id": str(user.user_id),
+                "name": user.name,
+                "role": user.role,
+                "hospital_id": None
+            }
+        }, "Account created successfully", 201)
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e), 500)
+
 @auth_bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
