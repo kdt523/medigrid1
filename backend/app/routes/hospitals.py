@@ -81,7 +81,7 @@ def create_hospital():
         db.session.flush()
 
         for r_type in ['general_bed', 'icu_bed', 'ventilator']:
-            total = data.get(f'{r_type}_total', 0)
+            total = data.get(r_type, 0)
             res = Resource(
                 hospital_id=hospital.hospital_id,
                 resource_type=r_type,

@@ -20,9 +20,10 @@ const headers = (extra = {}) => ({
 
 export const api = {
   // Auth
-  login:   (email, password)  => fetch(`${BASE_URL}/auth/login`,  { method: 'POST', headers: headers(), body: JSON.stringify({ email, password }) }).then(r => r.json()),
-  logout:  ()                  => fetch(`${BASE_URL}/auth/logout`, { method: 'POST', headers: headers() }).then(r => r.json()),
-  me:      ()                  => fetch(`${BASE_URL}/auth/me`,     { headers: headers() }).then(r => r.json()),
+  login:    (email, password)         => fetch(`${BASE_URL}/auth/login`,    { method: 'POST', headers: headers(), body: JSON.stringify({ email, password }) }).then(r => r.json()),
+  register: (name, email, password, role = 'user') => fetch(`${BASE_URL}/auth/register`, { method: 'POST', headers: headers(), body: JSON.stringify({ name, email, password, role }) }).then(r => r.json()),
+  logout:   ()                        => fetch(`${BASE_URL}/auth/logout`,   { method: 'POST', headers: headers() }).then(r => r.json()),
+  me:       ()                        => fetch(`${BASE_URL}/auth/me`,       { headers: headers() }).then(r => r.json()),
 
   // Hospitals
   getHospitals:    (params = {}) => {
@@ -72,10 +73,11 @@ export const api = {
   exportCSV:           (range)         => fetch(`${BASE_URL}/analytics/export?range=${range}`, { headers: headers() }),
 
   // Users
-  getUsers:     ()         => fetch(`${BASE_URL}/users`,      { headers: headers() }).then(r => r.json()),
-  createUser:   (data)     => fetch(`${BASE_URL}/users`,      { method: 'POST',   headers: headers(), body: JSON.stringify(data) }).then(r => r.json()),
-  updateUser:   (id, data) => fetch(`${BASE_URL}/users/${id}`, { method: 'PUT',   headers: headers(), body: JSON.stringify(data) }).then(r => r.json()),
-  toggleUser:   (id, status) => fetch(`${BASE_URL}/users/${id}/status`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ status }) }).then(r => r.json()),
+  getUsers:          ()           => fetch(`${BASE_URL}/users`,              { headers: headers() }).then(r => r.json()),
+  getHospitalAdmins: ()           => fetch(`${BASE_URL}/users?role=hospital_admin&per_page=100`, { headers: headers() }).then(r => r.json()),
+  createUser:        (data)       => fetch(`${BASE_URL}/users`,              { method: 'POST',  headers: headers(), body: JSON.stringify(data) }).then(r => r.json()),
+  updateUser:        (id, data)   => fetch(`${BASE_URL}/users/${id}`,        { method: 'PUT',   headers: headers(), body: JSON.stringify(data) }).then(r => r.json()),
+  toggleUser:        (id, status) => fetch(`${BASE_URL}/users/${id}/status`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ status }) }).then(r => r.json()),
 
   // Thresholds
   getThresholds:    ()            => fetch(`${BASE_URL}/thresholds`, { headers: headers() }).then(r => r.json()),

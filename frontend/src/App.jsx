@@ -209,6 +209,17 @@ const Dashboard = ({
   // Hospital Admin View
   if (effectiveRole === 'hospital_admin') {
     const h = dashStats; // For hospital admin, dashStats is their hospital object
+    if (!h) {
+      return (
+        <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+          <div className="w-16 h-16 rounded-full bg-cyan-500/10 flex items-center justify-center text-cyan-500">
+            <LayoutDashboard size={32} />
+          </div>
+          <h2 className="text-2xl font-bold text-white">Dashboard Unavailable</h2>
+          <p className="text-slate-400 text-center max-w-md">Your account has not been assigned to a hospital yet. Please contact the System Administrator to complete your setup.</p>
+        </div>
+      );
+    }
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -732,6 +743,18 @@ const MyHospitalPage = ({
     ventilator: 0
   });
 
+  if (!effectiveHospitalId) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+        <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
+          <Building2 size={32} />
+        </div>
+        <h2 className="text-2xl font-bold text-white">No Hospital Assigned</h2>
+        <p className="text-slate-400 text-center max-w-md">Your account has not been assigned to a hospital yet. Please contact the System Administrator to complete your setup.</p>
+      </div>
+    );
+  }
+
   useEffect(() => {
     if (h?.resources) {
       setForm({
@@ -752,7 +775,11 @@ const MyHospitalPage = ({
       showToast('Resources updated successfully');
       loadInitialData(); // Reload stats
     } else {
-      showToast(res.message || 'Update failed', 'error');
+      let errMsg = res.message || 'Update failed';
+      if (res.errors) {
+        errMsg = Object.values(res.errors).join(' | ');
+      }
+      showToast(errMsg, 'error');
     }
   };
 
@@ -1083,15 +1110,23 @@ const AddHospitalForm = ({ onSubmit, onCancel }) => {
   const [form, setForm] = useState({
     name: '', type: 'Public', zone: 'North', address: '', contact: '',
     general_bed: 0, icu_bed: 0, ventilator: 0,
-    lat: 18.5204, lng: 73.8567
+    lat: 18.5204, lng: 73.8567,
+    assignedAdminId: '' // ID of selected hospital_admin user
   });
   const [showMapPicker, setShowMapPicker] = useState(false);
+  const [hospitalAdmins, setHospitalAdmins] = useState([]);
+  const [adminsLoading, setAdminsLoading] = useState(true);
+
+  useEffect(() => {
+    api.getHospitalAdmins()
+      .then(d => setHospitalAdmins(d.data?.users || []))
+      .catch(() => setHospitalAdmins([]))
+      .finally(() => setAdminsLoading(false));
+  }, []);
 
   const handleLocationSelect = ({ lat, lng, address }) => {
     setForm(prev => ({ 
-      ...prev, 
-      lat, 
-      lng,
+      ...prev, lat, lng,
       address: address || prev.address || `Location: ${lat}, ${lng}`
     }));
   };
@@ -1167,6 +1202,30 @@ const AddHospitalForm = ({ onSubmit, onCancel }) => {
             <label className="text-xs font-bold text-slate-500 uppercase">Contact Information</label>
             <input value={form.contact} onChange={e => setForm({...form, contact: e.target.value})} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:border-cyan-500 outline-none" placeholder="+91 1234567890" />
           </div>
+
+          {/* Hospital Admin Assignment */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-500 uppercase">Assign Hospital Admin</label>
+            <select
+              value={form.assignedAdminId}
+              onChange={e => setForm({...form, assignedAdminId: e.target.value})}
+              disabled={adminsLoading}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:border-cyan-500 outline-none disabled:opacity-50"
+            >
+              <option value="">— None / Assign Later —</option>
+              {hospitalAdmins.map(admin => (
+                <option key={admin.user_id} value={admin.user_id}>
+                  {admin.name} ({admin.email}){admin.hospital_id ? ' ⚠ Already Assigned' : ''}
+                </option>
+              ))}
+            </select>
+            {form.assignedAdminId && hospitalAdmins.find(a => a.user_id === form.assignedAdminId)?.hospital_id && (
+              <p className="text-[10px] text-amber-400 flex items-center gap-1 mt-1">
+                <AlertCircle size={10} /> This admin is already assigned to another hospital. Assigning will overwrite.
+              </p>
+            )}
+            {adminsLoading && <p className="text-[10px] text-slate-500 mt-1">Loading hospital admins...</p>}
+          </div>
         </div>
       </div>
       <div className="pt-4 flex justify-end gap-3">
@@ -1217,37 +1276,65 @@ const ThresholdForm = ({ threshold, onSubmit, onCancel }) => {
 };
 
 
-// --- LOGIN COMPONENT ---
+// --- LOGIN / REGISTER COMPONENT ---
 
-const Login = ({ onLogin }) => {
+const Login = ({ onLogin, onRegister }) => {
+  const [tab, setTab] = useState('login');
+
+  // Login state
   const [email, setEmail] = useState('admin@medigrid.in');
   const [password, setPassword] = useState('Admin@1234');
-  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    await onLogin(email, password);
-    setLoading(false);
-  };
+  // Register state
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirm, setRegConfirm] = useState('');
+  const [regRole, setRegRole] = useState('user');
+  const [regShowPw, setRegShowPw] = useState(false);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState('');
 
   const fillDemo = (e, r) => {
     e.preventDefault();
     const creds = {
-      admin: ['admin@medigrid.in', 'Admin@1234'],
-      hospital: ['priya.rao@citygeneral.in', 'Hospital@123'],
-      operator: ['rohan.s@punepolice.in', 'Operator@123'],
-      authority: ['kavita@punecity.gov.in', 'Authority@123']
+      admin:    ['admin@medigrid.in',            'Admin@1234'],
+      hospital: ['priya.rao@citygeneral.in',      'Hospital@123'],
+      operator: ['rohan.s@punepolice.in',         'Operator@123'],
+      authority: ['kavita@punecity.gov.in',       'Authority@123']
     };
     setEmail(creds[r][0]);
     setPassword(creds[r][1]);
   };
 
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    await onLogin(email, password);
+    setLoginLoading(false);
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setRegError('');
+    if (regPassword !== regConfirm) { setRegError('Passwords do not match'); return; }
+    if (regPassword.length < 6) { setRegError('Password must be at least 6 characters'); return; }
+    setRegLoading(true);
+    const result = await onRegister(regName, regEmail, regPassword, regRole);
+    if (result?.status !== 'success') setRegError(result?.message || 'Registration failed');
+    setRegLoading(false);
+  };
+
+  const inputCls = "w-full bg-slate-900/50 border border-slate-800 rounded-2xl py-3.5 pl-12 pr-4 text-white focus:outline-none focus:border-cyan-500/50 focus:ring-4 ring-cyan-500/5 transition-all placeholder:text-slate-600";
+  const iconCls  = "absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors";
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0A0E1A] p-4 relative overflow-hidden medi-grid-bg">
       <div className="w-full max-w-[440px] animate-in fade-in zoom-in duration-500 relative z-10">
-        <div className="text-center mb-10 space-y-3">
+        {/* Logo */}
+        <div className="text-center mb-8 space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-cyan-500 text-white shadow-[0_0_30px_rgba(6,182,212,0.4)] mb-2">
             <Shield size={32} />
           </div>
@@ -1255,69 +1342,130 @@ const Login = ({ onLogin }) => {
           <p className="text-slate-400 font-medium">Critical Resource Management System</p>
         </div>
 
-        <div className="glass-card p-8 rounded-3xl border border-slate-800 shadow-2xl">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors">
-                  <Mail size={18} />
-                </div>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl py-3.5 pl-12 pr-4 text-white focus:outline-none focus:border-cyan-500/50 focus:ring-4 ring-cyan-500/5 transition-all"
-                  placeholder="name@example.com"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center ml-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Password</label>
-                <a href="#" className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors uppercase tracking-widest">Forgot?</a>
-              </div>
-              <div className="relative group">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors">
-                  <Lock size={18} />
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-slate-800 rounded-2xl py-3.5 pl-12 pr-12 text-white focus:outline-none focus:border-cyan-500/50 focus:ring-4 ring-cyan-500/5 transition-all"
-                  placeholder="••••••••"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
-
+        <div className="glass-card rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
+          {/* Tabs */}
+          <div className="flex border-b border-slate-800">
             <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-4 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-bold rounded-2xl shadow-xl shadow-cyan-500/20 transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
+              onClick={() => setTab('login')}
+              className={`flex-1 py-4 text-sm font-bold transition-all ${tab === 'login' ? 'text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/5' : 'text-slate-500 hover:text-white'}`}
             >
-              {loading ? <RefreshCcw size={20} className="animate-spin" /> : <>Sign In <ChevronRight size={20} /></>}
+              Sign In
             </button>
-          </form>
+            <button
+              onClick={() => setTab('register')}
+              className={`flex-1 py-4 text-sm font-bold transition-all ${tab === 'register' ? 'text-cyan-400 border-b-2 border-cyan-400 bg-cyan-500/5' : 'text-slate-500 hover:text-white'}`}
+            >
+              Register
+            </button>
+          </div>
 
-          <div className="mt-8 pt-8 border-t border-slate-800 space-y-4">
-            <p className="text-[10px] text-center font-bold text-slate-500 uppercase tracking-widest">Quick Access (Demo)</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={(e) => fillDemo(e, 'admin')} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-400 hover:border-cyan-500/50 hover:text-cyan-400 transition-all">SYSTEM ADMIN</button>
-              <button onClick={(e) => fillDemo(e, 'hospital')} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-400 hover:border-cyan-500/50 hover:text-cyan-400 transition-all">HOSPITAL ADMIN</button>
-              <button onClick={(e) => fillDemo(e, 'operator')} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-400 hover:border-cyan-500/50 hover:text-cyan-400 transition-all">OPERATOR</button>
-              <button onClick={(e) => fillDemo(e, 'authority')} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-400 hover:border-cyan-500/50 hover:text-cyan-400 transition-all">AUTHORITY</button>
-            </div>
+          <div className="p-8">
+            {/* ---- LOGIN FORM ---- */}
+            {tab === 'login' && (
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
+                  <div className="relative group">
+                    <div className={iconCls}><Mail size={18} /></div>
+                    <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className={inputCls} placeholder="name@example.com" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between ml-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Password</label>
+                    <a href="#" className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 uppercase tracking-widest">Forgot?</a>
+                  </div>
+                  <div className="relative group">
+                    <div className={iconCls}><Lock size={18} /></div>
+                    <input type={showPassword ? 'text' : 'password'} required value={password} onChange={e => setPassword(e.target.value)} className={`${inputCls} pr-12`} placeholder="••••••••" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <button type="submit" disabled={loginLoading} className="w-full py-4 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-bold rounded-2xl shadow-xl shadow-cyan-500/20 transition-all flex items-center justify-center gap-2 active:scale-[0.98]">
+                  {loginLoading ? <RefreshCcw size={20} className="animate-spin" /> : <>Sign In <ChevronRight size={18} /></>}
+                </button>
+
+                <div className="pt-4 border-t border-slate-800 space-y-3">
+                  <p className="text-[10px] text-center font-bold text-slate-500 uppercase tracking-widest">Quick Access</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[['admin','SYSTEM ADMIN'],['hospital','HOSPITAL ADMIN'],['operator','OPERATOR'],['authority','AUTHORITY']].map(([k,l]) => (
+                      <button key={k} onClick={(e) => fillDemo(e, k)} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-400 hover:border-cyan-500/50 hover:text-cyan-400 transition-all">{l}</button>
+                    ))}
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {/* ---- REGISTER FORM ---- */}
+            {tab === 'register' && (
+              <form onSubmit={handleRegister} className="space-y-4">
+                <div className="p-3 bg-cyan-500/5 border border-cyan-500/10 rounded-xl">
+                  <p className="text-[11px] text-cyan-400 font-medium">Register as a public user or as a new hospital admin.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Account Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setRegRole('user')} className={`p-2 rounded-xl text-[10px] font-bold transition-all border ${regRole === 'user' ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-cyan-500/30'}`}>GENERAL USER</button>
+                    <button type="button" onClick={() => setRegRole('hospital_admin')} className={`p-2 rounded-xl text-[10px] font-bold transition-all border ${regRole === 'hospital_admin' ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-cyan-500/30'}`}>HOSPITAL ADMIN</button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
+                  <div className="relative group">
+                    <div className={iconCls}><User size={18} /></div>
+                    <input type="text" required value={regName} onChange={e => setRegName(e.target.value)} className={inputCls} placeholder="John Doe" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
+                  <div className="relative group">
+                    <div className={iconCls}><Mail size={18} /></div>
+                    <input type="email" required value={regEmail} onChange={e => setRegEmail(e.target.value)} className={inputCls} placeholder="name@example.com" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Password</label>
+                  <div className="relative group">
+                    <div className={iconCls}><Lock size={18} /></div>
+                    <input type={regShowPw ? 'text' : 'password'} required value={regPassword} onChange={e => setRegPassword(e.target.value)} className={`${inputCls} pr-12`} placeholder="Min. 6 characters" />
+                    <button type="button" onClick={() => setRegShowPw(!regShowPw)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
+                      {regShowPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Confirm Password</label>
+                  <div className="relative group">
+                    <div className={iconCls}><Lock size={18} /></div>
+                    <input type="password" required value={regConfirm} onChange={e => setRegConfirm(e.target.value)} className={inputCls} placeholder="Re-enter password" />
+                  </div>
+                </div>
+
+                {regError && (
+                  <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-medium">
+                    <AlertCircle size={14} /> {regError}
+                  </div>
+                )}
+
+                <button type="submit" disabled={regLoading} className="w-full py-4 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-bold rounded-2xl shadow-xl shadow-cyan-500/20 transition-all flex items-center justify-center gap-2 active:scale-[0.98]">
+                  {regLoading ? <RefreshCcw size={20} className="animate-spin" /> : <>Create Account <ChevronRight size={18} /></>}
+                </button>
+
+                <p className="text-center text-[10px] text-slate-500 pt-2">
+                  Already have an account?{' '}
+                  <button type="button" onClick={() => setTab('login')} className="text-cyan-400 font-bold hover:text-cyan-300">Sign in</button>
+                </p>
+              </form>
+            )}
           </div>
         </div>
       </div>
@@ -1474,6 +1622,19 @@ export default function App() {
     }
   };
 
+  const handleRegister = async (name, email, password, role) => {
+    const result = await api.register(name, email, password, role);
+    if (result.status === 'success') {
+      setToken(result.data.access_token);
+      setCurrentUser(result.data.user);
+      setIsLoggedIn(true);
+      showToast(`Welcome to MediGrid, ${result.data.user.name}!`);
+    } else {
+      showToast(result.message || 'Registration failed', 'error');
+    }
+    return result;
+  };
+
   const handleLogout = async () => {
     await api.logout();
     clearToken();
@@ -1486,8 +1647,13 @@ export default function App() {
   };
 
   const handleAddHospital = async (data) => {
-    const res = await api.createHospital(data);
+    const { assignedAdminId, ...hospitalData } = data;
+    const res = await api.createHospital(hospitalData);
     if (res.status === 'success') {
+      // If a hospital admin was selected, link them to this hospital
+      if (assignedAdminId && res.data?.hospital_id) {
+        await api.updateUser(assignedAdminId, { hospital_id: res.data.hospital_id });
+      }
       showToast('Hospital added successfully');
       setModals({ ...modals, addHospital: false });
       loadInitialData();
@@ -1528,6 +1694,7 @@ export default function App() {
     if (role === 'hospital_admin') return ['dashboard', 'myhospital', 'alerts'];
     if (role === 'authority') return ['dashboard', 'hospitals', 'alerts', 'analytics'];
     if (role === 'operator') return ['hospitals', 'search', 'alerts'];
+    if (role === 'user') return ['hospitals', 'search', 'alerts'];
     return ['hospitals', 'search'];
   };
 
@@ -1545,7 +1712,7 @@ export default function App() {
 
 
 
-  if (!isLoggedIn) return <Login onLogin={handleLogin} />;
+  if (!isLoggedIn) return <Login onLogin={handleLogin} onRegister={handleRegister} />;
 
   return (
     <div className="min-h-screen flex bg-[#0A0E1A] text-slate-200 medi-grid-bg">

@@ -16,8 +16,13 @@ def get_users():
     try:
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 20, type=int)
+        role_filter = request.args.get('role')
 
-        pagination = User.query.paginate(page=page, per_page=per_page, error_out=False)
+        query = User.query
+        if role_filter:
+            query = query.filter_by(role=role_filter)
+
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         return success_response({
             "users": users_schema.dump(pagination.items),
             "total": pagination.total,
@@ -38,8 +43,9 @@ def create_user():
         if User.query.filter_by(email=data.get('email')).first():
             return error_response("Email already exists", 400)
 
-        if data.get('role') == 'hospital_admin' and not data.get('hospital_id'):
-            return error_response("hospital_id is required for hospital_admin", 400)
+
+        # Removed the constraint that hospital_admin must have hospital_id on creation
+        # so they can be assigned later during hospital creation.
 
         user = User(
             name=data['name'],

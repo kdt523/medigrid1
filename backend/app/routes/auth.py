@@ -30,7 +30,6 @@ def login():
         db.session.commit()
 
         access_token = create_access_token(identity=str(user.user_id))
-
         log_action(user.user_id, "LOGIN", "user", user.user_id)
 
         return success_response({
@@ -45,6 +44,51 @@ def login():
     except Exception as e:
         return error_response(str(e))
 
+
+@auth_bp.route('/register', methods=['POST'])
+def register():
+    """Public self-registration. Creates a 'user' role account and returns JWT."""
+    try:
+        data = request.get_json() or {}
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        role = data.get('role', 'user').strip().lower()
+
+        if role not in ['user', 'hospital_admin']:
+            role = 'user' # Fallback for safety
+
+        if not name or not email or not password:
+            return error_response("Name, email, and password are required", 400)
+
+        if len(password) < 6:
+            return error_response("Password must be at least 6 characters", 400)
+
+        if User.query.filter_by(email=email).first():
+            return error_response("An account with this email already exists", 400)
+
+        user = User(name=name, email=email, role=role, status='active')
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        access_token = create_access_token(identity=str(user.user_id))
+        log_action(user.user_id, "REGISTER", "user", user.user_id)
+
+        return success_response({
+            "access_token": access_token,
+            "user": {
+                "user_id": str(user.user_id),
+                "name": user.name,
+                "role": user.role,
+                "hospital_id": None
+            }
+        }, "Registration successful", 201)
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e))
+
+
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
@@ -54,6 +98,7 @@ def logout():
         return success_response(None, "Logged out")
     except Exception as e:
         return error_response(str(e))
+
 
 @auth_bp.route('/me', methods=['GET'])
 @jwt_required()

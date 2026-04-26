@@ -66,15 +66,18 @@ def update_resources(hospital_id):
         if errors:
             return error_response("Validation failed", 400, errors)
 
-        with db.session.begin():
-            for r_type, old_v, new_v in updates:
-                check_and_trigger(hospital_id, r_type, new_v, session=db.session)
-                log_action(user_id, "UPDATE", "resource", hospital_id,
-                           old_value={r_type: old_v}, new_value={r_type: new_v},
-                           session=db.session, commit=False)
+        for r_type, old_v, new_v in updates:
+            check_and_trigger(hospital_id, r_type, new_v, session=db.session)
+            log_action(user_id, "UPDATE", "resource", hospital_id,
+                       old_value={r_type: old_v}, new_value={r_type: new_v},
+                       session=db.session, commit=False)
+                       
+        db.session.commit()
 
         return success_response(hospital_schema.dump(hospital).get('resources'), "Resources updated")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         db.session.rollback()
         return error_response(str(e))
 
