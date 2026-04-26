@@ -14,27 +14,34 @@ thresholds_bp = Blueprint('thresholds', __name__)
 @jwt_required()
 @role_required('system_admin', 'authority')
 def get_thresholds():
-    thresholds = Threshold.query.all()
-    return success_response({"thresholds": thresholds_schema.dump(thresholds)})
+    try:
+        thresholds = Threshold.query.all()
+        return success_response({"thresholds": thresholds_schema.dump(thresholds)})
+    except Exception as e:
+        return error_response(str(e))
 
 @thresholds_bp.route('/<hospital_id>', methods=['PUT'])
 @jwt_required()
 @role_required('system_admin', 'authority')
 def update_thresholds(hospital_id):
-    data = request.get_json()
+    data = request.get_json() or {}
     user_id = get_jwt_identity()
-    
-    updated = []
-    for r_type, min_val in data.items():
-        threshold = Threshold.query.filter_by(hospital_id=hospital_id, resource_type=r_type).first()
-        if not threshold:
-            threshold = Threshold(hospital_id=hospital_id, resource_type=r_type, min_value=min_val)
-            db.session.add(threshold)
-        else:
-            threshold.min_value = min_val
-        updated.append(threshold)
 
-    db.session.commit()
-    log_action(user_id, "UPDATE", "thresholds", hospital_id, new_value=data)
-    
-    return success_response(thresholds_schema.dump(updated), "Thresholds updated")
+    try:
+        updated = []
+        for r_type, min_val in data.items():
+            threshold = Threshold.query.filter_by(hospital_id=hospital_id, resource_type=r_type).first()
+            if not threshold:
+                threshold = Threshold(hospital_id=hospital_id, resource_type=r_type, min_value=min_val)
+                db.session.add(threshold)
+            else:
+                threshold.min_value = min_val
+            updated.append(threshold)
+
+        db.session.commit()
+        log_action(user_id, "UPDATE", "thresholds", hospital_id, new_value=data)
+
+        return success_response(thresholds_schema.dump(updated), "Thresholds updated")
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e))

@@ -63,7 +63,12 @@ export const api = {
 
   // Analytics
   getAnalyticsSummary: ()              => fetch(`${BASE_URL}/analytics/summary`,  { headers: headers() }).then(r => r.json()),
-  getAnalyticsTrends:  (range, type)   => fetch(`${BASE_URL}/analytics/trends?range=${range}&resource_type=${type}`, { headers: headers() }).then(r => r.json()),
+  getAnalyticsTrends:  (range, type)   => {
+    const params = new URLSearchParams();
+    if (range) params.append('range', range);
+    if (type) params.append('resource_type', type);
+    return fetch(`${BASE_URL}/analytics/trends?${params.toString()}`, { headers: headers() }).then(r => r.json());
+  },
   exportCSV:           (range)         => fetch(`${BASE_URL}/analytics/export?range=${range}`, { headers: headers() }),
 
   // Users

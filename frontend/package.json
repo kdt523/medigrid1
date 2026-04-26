@@ -10,8 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mapbox/mapbox-gl-geocoder": "^5.1.2",
     "autoprefixer": "^10.4.27",
     "lucide-react": "^0.577.0",
+    "mapbox-gl": "^3.22.0",
     "postcss": "^8.5.8",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

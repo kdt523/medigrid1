@@ -13,69 +13,95 @@ users_bp = Blueprint('users', __name__)
 @jwt_required()
 @role_required('system_admin')
 def get_users():
-    users = User.query.all()
-    return success_response({"users": users_schema.dump(users)})
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+
+        pagination = User.query.paginate(page=page, per_page=per_page, error_out=False)
+        return success_response({
+            "users": users_schema.dump(pagination.items),
+            "total": pagination.total,
+            "page": pagination.page,
+            "per_page": pagination.per_page
+        })
+    except Exception as e:
+        return error_response(str(e))
 
 @users_bp.route('', methods=['POST'])
 @jwt_required()
 @role_required('system_admin')
 def create_user():
-    data = request.get_json()
+    data = request.get_json() or {}
     user_id = get_jwt_identity()
 
-    if User.query.filter_by(email=data['email']).first():
-        return error_response("Email already exists", 400)
+    try:
+        if User.query.filter_by(email=data.get('email')).first():
+            return error_response("Email already exists", 400)
 
-    user = User(
-        name=data['name'],
-        email=data['email'],
-        role=data['role'],
-        hospital_id=data.get('hospital_id'),
-        status='active'
-    )
-    user.set_password(data['password'])
-    
-    db.session.add(user)
-    db.session.commit()
-    
-    log_action(user_id, "CREATE", "user", user.user_id, new_value=user_schema.dump(user))
-    
-    return success_response(user_schema.dump(user), "User created", 201)
+        if data.get('role') == 'hospital_admin' and not data.get('hospital_id'):
+            return error_response("hospital_id is required for hospital_admin", 400)
+
+        user = User(
+            name=data['name'],
+            email=data['email'],
+            role=data['role'],
+            hospital_id=data.get('hospital_id'),
+            status='active'
+        )
+        user.set_password(data['password'])
+
+        db.session.add(user)
+        db.session.commit()
+
+        log_action(user_id, "CREATE", "user", user.user_id, new_value=user_schema.dump(user))
+
+        return success_response(user_schema.dump(user), "User created", 201)
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e))
 
 @users_bp.route('/<user_id>', methods=['PUT'])
 @jwt_required()
 @role_required('system_admin')
 def update_user(user_id):
     user = User.query.get_or_404(user_id)
-    data = request.get_json()
+    data = request.get_json() or {}
     admin_id = get_jwt_identity()
-    
-    old_val = user_schema.dump(user)
-    
-    user.name = data.get('name', user.name)
-    user.role = data.get('role', user.role)
-    user.hospital_id = data.get('hospital_id', user.hospital_id)
-    user.status = data.get('status', user.status)
-    
-    if data.get('password'):
-        user.set_password(data['password'])
 
-    db.session.commit()
-    log_action(admin_id, "UPDATE", "user", user.user_id, old_value=old_val, new_value=user_schema.dump(user))
-    
-    return success_response(user_schema.dump(user), "User updated")
+    try:
+        old_val = user_schema.dump(user)
+
+        user.name = data.get('name', user.name)
+        user.role = data.get('role', user.role)
+        user.hospital_id = data.get('hospital_id', user.hospital_id)
+        user.status = data.get('status', user.status)
+
+        if data.get('password'):
+            user.set_password(data['password'])
+
+        db.session.commit()
+        log_action(admin_id, "UPDATE", "user", user.user_id, old_value=old_val, new_value=user_schema.dump(user))
+
+        return success_response(user_schema.dump(user), "User updated")
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e))
 
 @users_bp.route('/<user_id>/status', methods=['PATCH'])
 @jwt_required()
 @role_required('system_admin')
 def toggle_user_status(user_id):
     user = User.query.get_or_404(user_id)
-    data = request.get_json()
+    data = request.get_json() or {}
     admin_id = get_jwt_identity()
-    
-    user.status = data.get('status', 'inactive')
-    db.session.commit()
-    
-    log_action(admin_id, "UPDATE", "user_status", user.user_id, new_value={"status": user.status})
-    
-    return success_response(None, f"User status updated to {user.status}")
+
+    try:
+        user.status = data.get('status', 'inactive')
+        db.session.commit()
+
+        log_action(admin_id, "UPDATE", "user_status", user.user_id, new_value={"status": user.status})
+
+        return success_response(None, f"User status updated to {user.status}")
+    except Exception as e:
+        db.session.rollback()
+        return error_response(str(e))

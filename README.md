@@ -52,6 +52,7 @@ cd frontend
 npm install
 npm run dev
 ```
+The main component is available at frontend/MediGrid.jsx (App.jsx re-exports it for Vite).
 
 ## 👥 Demo Credentials
 

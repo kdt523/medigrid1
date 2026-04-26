@@ -25,6 +25,8 @@ services:
       - db
     volumes:
       - ./backend:/app
+    command: >
+      sh -c "flask db upgrade && python seed.py && python run.py"
 
 volumes:
   medigrid_pgdata:

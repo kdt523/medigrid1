@@ -37,7 +37,7 @@ def seed_db():
                 db.session.add(res)
                 
                 # Default Thresholds
-                min_v = 30 if r_type == 'general_bed' else (10 if r_type == 'icu_bed' else 3)
+                min_v = 30 if r_type == 'general_bed' else (5 if r_type == 'icu_bed' else 3)
                 thresh = Threshold(hospital_id=h.hospital_id, resource_type=r_type, min_value=min_v)
                 db.session.add(thresh)
 
@@ -61,13 +61,19 @@ def seed_db():
             db.session.add(user)
 
         print("Seeding demo alerts...")
+        # City General Hospital | ICU beds: 8, threshold: 10 -> alert
+        cgh_id = hospitals_map["City General Hospital"]
+        cgh_thresh = Threshold.query.filter_by(hospital_id=cgh_id, resource_type="icu_bed").first()
+        cgh_thresh.min_value = 10
+        alert0 = Alert(hospital_id=cgh_id, resource_type="icu_bed", threshold_value=10, current_value=8, severity="warning", status="active")
+        db.session.add(alert0)
+
         # Government District Hospital | Ventilators: 2, threshold: 3 -> alert
         gdh_id = hospitals_map["Government District Hospital"]
         alert1 = Alert(hospital_id=gdh_id, resource_type="ventilator", threshold_value=3, current_value=2, severity="critical", status="active")
         db.session.add(alert1)
-        
-        # Poona Hospital | General beds: 167, threshold: 200 (Wait, I set default threshold for general_bed to 30)
-        # Let's override threshold for Poona Hospital for demo
+
+        # Poona Hospital | General beds: 167, threshold: 200 -> alert
         ph_id = hospitals_map["Poona Hospital"]
         ph_thresh = Threshold.query.filter_by(hospital_id=ph_id, resource_type="general_bed").first()
         ph_thresh.min_value = 200
